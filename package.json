@@ -1,6 +1,6 @@
 {
   "name": "opencode-s",
-  "version": "0.1.10",
+  "version": "1.0.0",
   "description": "A CLI for listing, inspecting, resuming, and deleting OpenCode sessions from the local session database.",
   "type": "module",
   "bin": {

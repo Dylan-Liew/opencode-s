@@ -3,8 +3,8 @@ import path from "node:path";
 import process from "node:process";
 import type { CommandModule } from "yargs";
 import {
-  deleteUnusedProjects,
   getSessionStorePath,
+  openSessionStore,
   openSessionStoreWritable,
   sessionExists,
 } from "../../services/sessions.js";
@@ -16,7 +16,7 @@ interface CleanupResult {
 }
 
 function removeStaleSessionDiffFiles(): number {
-  const db = openSessionStoreWritable();
+  const db = openSessionStore();
   const dbPath = getSessionStorePath();
   const sessionDiffDir = path.join(path.dirname(dbPath), "storage", "session_diff");
 
@@ -56,30 +56,25 @@ function removeStaleSessionDiffFiles(): number {
 }
 
 export function runCleanupCommand(vacuum: boolean): void {
-  const db = openSessionStoreWritable();
-
-  try {
-    const projectsRemoved = deleteUnusedProjects(db);
-
-    if (vacuum) {
+  if (vacuum) {
+    const db = openSessionStoreWritable();
+    try {
       db.prepare("VACUUM").run();
+    } finally {
+      db.close();
     }
-
-    db.close();
-
-    const sessionDiffFilesRemoved = removeStaleSessionDiffFiles();
-    const result: CleanupResult = {
-      projectsRemoved,
-      sessionDiffFilesRemoved,
-      vacuumed: vacuum,
-    };
-
-    process.stdout.write(
-      `Cleanup complete. projects_removed=${result.projectsRemoved} session_diff_removed=${result.sessionDiffFilesRemoved} vacuum=${result.vacuumed ? "yes" : "no"}\n`,
-    );
-  } finally {
-    db.close();
   }
+
+  const sessionDiffFilesRemoved = removeStaleSessionDiffFiles();
+  const result: CleanupResult = {
+    projectsRemoved: 0,
+    sessionDiffFilesRemoved,
+    vacuumed: vacuum,
+  };
+
+  process.stdout.write(
+    `Cleanup complete. projects_removed=${result.projectsRemoved} session_diff_removed=${result.sessionDiffFilesRemoved} vacuum=${result.vacuumed ? "yes" : "no"}\n`,
+  );
 }
 
 export const cleanupCommand: CommandModule = {

@@ -2,7 +2,8 @@ import process from "node:process";
 import type { CommandModule } from "yargs";
 import { fail } from "../../lib/errors.js";
 import { resolveSessionIdInteractively } from "../session-picker.js";
-import { getSession, openSessionStoreWritable, setSessionTitle } from "../../services/sessions.js";
+import { runOpencodeWithStatus } from "../../services/opencode.js";
+import { getSession, openSessionStore } from "../../services/sessions.js";
 
 export async function runRenameCommand(input: string, titleParts: string[]): Promise<void> {
   const title = titleParts.join(" ").trim();
@@ -11,7 +12,7 @@ export async function runRenameCommand(input: string, titleParts: string[]): Pro
     fail("Specify a new title.");
   }
 
-  const db = openSessionStoreWritable();
+  const db = openSessionStore();
 
   try {
     const id = await resolveSessionIdInteractively(db, input, { allowTitle: true });
@@ -21,7 +22,13 @@ export async function runRenameCommand(input: string, titleParts: string[]): Pro
       fail(`Session not found: ${id}`);
     }
 
-    setSessionTitle(db, id, title);
+    const status = runOpencodeWithStatus(
+      ["api", "session.update", "--param", `sessionID=${id}`, "--data", JSON.stringify({ title })],
+      session.directory || session.worktree || process.cwd(),
+    );
+    if (status !== 0) {
+      fail(`OpenCode failed to rename session: ${id}`, status);
+    }
     process.stdout.write(`Renamed ${id}\n${session.title} -> ${title}\n`);
   } finally {
     db.close();

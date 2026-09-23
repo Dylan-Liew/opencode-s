@@ -8,18 +8,14 @@ import { confirmDelete } from "../../output/prompt.js";
 import { formatTable } from "../../output/table.js";
 import { runOpencodeWithStatus } from "../../services/opencode.js";
 import {
-  deleteProjectIfUnused,
   getSession,
-  getSessionProjectId,
   listRootSessions,
   openSessionStore,
-  openSessionStoreWritable,
   type SessionDetails,
 } from "../../services/sessions.js";
 
 interface DeleteTarget {
   session: SessionDetails;
-  projectId?: string;
   workingDirectory: string;
 }
 
@@ -89,7 +85,6 @@ export async function runDeleteCommand(inputs: string[]): Promise<void> {
       const directory = session.directory || session.worktree;
       targets.push({
         session,
-        projectId: getSessionProjectId(db, session.sessionId),
         workingDirectory: getDeleteWorkingDirectory(id, directory),
       });
     }
@@ -105,30 +100,14 @@ export async function runDeleteCommand(inputs: string[]): Promise<void> {
   }
 
   let exitCode = 0;
-  const deletedProjectIds = new Set<string>();
-
   for (const target of targets) {
     const status = runOpencodeWithStatus(
       ["session", "delete", target.session.sessionId],
       target.workingDirectory,
     );
 
-    if (status === 0 && target.projectId) {
-      deletedProjectIds.add(target.projectId);
-    } else if (status !== 0) {
+    if (status !== 0) {
       exitCode = status;
-    }
-  }
-
-  if (deletedProjectIds.size > 0) {
-    const writeDb = openSessionStoreWritable();
-
-    try {
-      for (const projectId of deletedProjectIds) {
-        deleteProjectIfUnused(writeDb, projectId);
-      }
-    } finally {
-      writeDb.close();
     }
   }
 

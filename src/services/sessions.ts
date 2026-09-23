@@ -67,7 +67,17 @@ function getDbPath(): string {
   }
 
   try {
-    return readOpencode(["db", "path"]);
+    const paths = readOpencode(["debug", "paths"]);
+    const db = paths
+      .split(/\r?\n/)
+      .map((line) => /^\s*db\s+(.+?)\s*$/.exec(line)?.[1])
+      .find((value): value is string => Boolean(value));
+
+    if (db) {
+      return db;
+    }
+
+    fail("OpenCode did not report its database path.");
   } catch (error) {
     fail(`Failed to resolve OpenCode database path: ${(error as Error).message}`);
   }
@@ -122,7 +132,7 @@ function listSessionsByWhereClause(
       datetime(s.time_updated / 1000, 'unixepoch', 'localtime') as updated,
       replace(replace(s.title, char(10), ' '), char(13), ' ') as title,
       coalesce(nullif(s.directory, ''), p.worktree, '') as directory
-    from session s
+    from session_v2 s
     left join project p on p.id = s.project_id
     where ${whereClause}
     order by s.time_updated desc
@@ -225,7 +235,7 @@ function listSearchableSessions(db: SessionDatabase): RootSession[] {
       datetime(s.time_updated / 1000, 'unixepoch', 'localtime') as updated,
       replace(replace(s.title, char(10), ' '), char(13), ' ') as title,
       coalesce(nullif(s.directory, ''), p.worktree, '') as directory
-    from session s
+    from session_v2 s
     left join project p on p.id = s.project_id
     where s.parent_id is null
     order by s.time_updated desc
@@ -255,7 +265,7 @@ export function listRootSessions(db: SessionDatabase): RootSession[] {
       datetime(s.time_updated / 1000, 'unixepoch', 'localtime') as updated,
       replace(replace(s.title, char(10), ' '), char(13), ' ') as title,
       coalesce(nullif(s.directory, ''), p.worktree, '') as directory
-    from session s
+    from session_v2 s
     left join project p on p.id = s.project_id
     where s.parent_id is null
     order by s.time_updated desc
@@ -279,7 +289,7 @@ export function listProjects(db: SessionDatabase): ProjectSummary[] {
         ''
       ) as lastUpdated
     from project p
-    left join session s on s.project_id = p.id
+    left join session_v2 s on s.project_id = p.id
     group by p.id
     order by max(coalesce(s.time_updated, s.time_created)) desc, p.id asc
   `,
@@ -299,7 +309,7 @@ export function listRootSessionsForDirectory(
       datetime(s.time_updated / 1000, 'unixepoch', 'localtime') as updated,
       replace(replace(s.title, char(10), ' '), char(13), ' ') as title,
       coalesce(nullif(s.directory, ''), p.worktree, '') as directory
-    from session s
+    from session_v2 s
     left join project p on p.id = s.project_id
     where s.parent_id is null
       and coalesce(nullif(s.directory, ''), p.worktree, '') = ?
@@ -320,7 +330,7 @@ export function getLatestSessionForDirectorySince(
     select
       s.id as sessionId,
       max(coalesce(s.time_updated, 0), coalesce(s.time_created, 0)) as activityMs
-    from session s
+    from session_v2 s
     left join project p on p.id = s.project_id
     where coalesce(nullif(s.directory, ''), p.worktree, '') = ?
       and max(coalesce(s.time_updated, 0), coalesce(s.time_created, 0)) >= ?
@@ -342,7 +352,7 @@ export function getLatestRootSessionForDirectoryCreatedSince(
     select
       s.id as sessionId,
       coalesce(s.time_created, 0) as activityMs
-    from session s
+    from session_v2 s
     left join project p on p.id = s.project_id
     where s.parent_id is null
       and coalesce(nullif(s.directory, ''), p.worktree, '') = ?
@@ -364,7 +374,7 @@ export function getLatestSessionForDirectory(
     select
       s.id as sessionId,
       max(coalesce(s.time_updated, 0), coalesce(s.time_created, 0)) as activityMs
-    from session s
+    from session_v2 s
     left join project p on p.id = s.project_id
     where coalesce(nullif(s.directory, ''), p.worktree, '') = ?
     order by activityMs desc
@@ -389,7 +399,7 @@ export function getSession(db: SessionDatabase, id: string): SessionDetails | un
       coalesce(datetime(s.time_created / 1000, 'unixepoch', 'localtime'), '') as created,
       coalesce(datetime(s.time_updated / 1000, 'unixepoch', 'localtime'), '') as updated,
       coalesce(datetime(s.time_archived / 1000, 'unixepoch', 'localtime'), '') as archived
-    from session s
+    from session_v2 s
     left join project p on p.id = s.project_id
     where s.id = ?
   `,
@@ -402,7 +412,7 @@ export function getSessionDirectory(db: SessionDatabase, id: string): string {
     .prepare(
       `
     select coalesce(nullif(s.directory, ''), p.worktree, '') as directory
-    from session s
+    from session_v2 s
     left join project p on p.id = s.project_id
     where s.id = ?
   `,
@@ -417,7 +427,7 @@ export function getSessionProjectId(db: SessionDatabase, id: string): string | u
     .prepare(
       `
     select s.project_id as projectId
-    from session s
+    from session_v2 s
     where s.id = ?
   `,
     )
@@ -431,7 +441,7 @@ export function sessionExists(db: SessionDatabase, id: string): boolean {
     .prepare(
       `
     select 1 as value
-    from session s
+    from session_v2 s
     where s.id = ?
     limit 1
   `,
@@ -450,7 +460,7 @@ export function deleteProjectIfUnused(db: SessionDatabase, projectId: string): b
     .prepare(
       `
     select count(*) as count
-    from session s
+    from session_v2 s
     where s.project_id = ?
   `,
     )
@@ -480,7 +490,7 @@ export function deleteUnusedProjects(db: SessionDatabase): number {
     where id <> 'global'
       and not exists (
         select 1
-        from session s
+        from session_v2 s
         where s.project_id = project.id
       )
   `,
@@ -495,39 +505,69 @@ export function getSessionCounts(db: SessionDatabase, id: string): SessionCounts
     .prepare(
       `
     select
-      (select count(*) from message where session_id = ?) as messages,
-      (select count(*) from part where session_id = ?) as parts,
-      (select count(*) from todo where session_id = ?) as todos
+      count(*) as messages,
+      coalesce(sum(
+        case
+          when json_type(data, '$.content') = 'array' then json_array_length(data, '$.content')
+          when json_type(data, '$.text') = 'text' then 1
+          else 0
+        end
+      ), 0) as parts,
+      0 as todos
+    from session_message
+    where session_id = ?
   `,
     )
-    .get(id, id, id) as SessionCounts;
+    .get(id) as SessionCounts;
 }
 
 export function getRecentTextParts(db: SessionDatabase, id: string): RecentTextPart[] {
-  return db
+  const rows = db
     .prepare(
       `
     select
-      datetime(p.time_created / 1000, 'unixepoch', 'localtime') as created,
-      upper(coalesce(json_extract(m.data, '$.role'), '?')) as role,
-      replace(replace(substr(coalesce(json_extract(p.data, '$.text'), ''), 1, 160), char(10), ' '), char(13), ' ') as text
-    from part p
-    join message m on m.id = p.message_id
-    where p.session_id = ?
-      and json_extract(p.data, '$.type') = 'text'
-    order by p.time_created desc
-    limit 10
+      datetime(time_created / 1000, 'unixepoch', 'localtime') as created,
+      upper(type) as role,
+      data
+    from session_message
+    where session_id = ?
+    order by seq desc
+    limit 30
   `,
     )
-    .all(id) as RecentTextPart[];
-}
+    .all(id) as Array<{ created: string; role: string; data: string }>;
 
-export function setSessionTitle(db: SessionDatabase, id: string, title: string): void {
-  db.prepare(
-    `
-      update session
-      set title = ?
-      where id = ?
-    `,
-  ).run(title, id);
+  const parts: RecentTextPart[] = [];
+  for (const row of rows) {
+    let data: { text?: unknown; content?: unknown };
+    try {
+      data = JSON.parse(row.data) as typeof data;
+    } catch {
+      continue;
+    }
+    const values = [
+      typeof data.text === "string" ? data.text : "",
+      ...(Array.isArray(data.content)
+        ? data.content
+            .filter(
+              (part): part is { type: "text"; text: string } =>
+                typeof part === "object" &&
+                part !== null &&
+                (part as { type?: unknown }).type === "text" &&
+                typeof (part as { text?: unknown }).text === "string",
+            )
+            .map((part) => part.text)
+        : []),
+    ];
+    for (const value of values) {
+      const text = value.replace(/[\r\n]+/g, " ").slice(0, 160);
+      if (text) {
+        parts.push({ created: row.created, role: row.role, text });
+      }
+      if (parts.length === 10) {
+        return parts;
+      }
+    }
+  }
+  return parts;
 }

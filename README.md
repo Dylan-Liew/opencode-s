@@ -2,10 +2,13 @@
 
 `opencode-s` installs the `oc` CLI, a small tool for listing, inspecting, resuming, and deleting OpenCode sessions from the local session database.
 
+> [!IMPORTANT]
+> Version 1.x supports OpenCode v2 only. OpenCode v1 is no longer supported; use the final 0.x release if you must remain on v1.
+
 ## Requirements
 
 - Node.js `>=24` or Bun `>=1.1.0`
-- `opencode` available in your shell
+- OpenCode v2 available in your shell
 
 `opencode-s` can be installed with npm or Bun. It uses runtime-native SQLite:
 Node runs use `node:sqlite`, and Bun runs use `bun:sqlite`. The package does
@@ -77,6 +80,12 @@ When a session value is provided, the CLI resolves it in this order:
 When `oc delete` is run without arguments, it opens an interactive multi-select picker. In TTY mode, type to filter, use `Space` to toggle sessions, and press `Enter` to continue. In non-TTY mode, enter numbers and ranges like `1,3,5-8`.
 
 Deletion asks for `y/N` confirmation before any sessions are removed.
+Rename and delete operations use OpenCode v2's service API; reads use its
+`session_v2` and `session_message` projections.
+
+`oc cleanup` only removes stale legacy session-diff cache files. Add
+`--vacuum` to ask SQLite to reclaim unused database pages; v2 projects are
+left under OpenCode's ownership.
 
 ## Quick workflows
 
