@@ -28,6 +28,8 @@ describe("OpenCode v2 session store", () => {
     const setup = new Database(filename, { create: true });
     setup.exec(`
       create table project (id text primary key, name text, worktree text);
+      create table session (id text primary key, title text);
+      insert into session values ('ses-v2', 'Legacy copy'), ('legacy-only', 'Old session');
       create table session_v2 (
         id text primary key, project_id text, parent_id text, title text,
         directory text, share_url text, agent text, model text,
@@ -56,12 +58,22 @@ describe("OpenCode v2 session store", () => {
     try {
       expect(listRootSessions(db)).toHaveLength(1);
       expect(listProjects(db)[0]).toMatchObject({ sessions: 1, rootSessions: 1 });
-      expect(getSession(db, "ses-v2")).toMatchObject({ title: "V2 title", projectName: "Project One" });
+      expect(getSession(db, "ses-v2")).toMatchObject({
+        title: "V2 title",
+        projectName: "Project One",
+      });
       expect(getSessionCounts(db, "ses-v2")).toEqual({ messages: 2, parts: 3, todos: 0 });
       expect(getRecentTextParts(db, "ses-v2").map((part) => part.text)).toEqual([
         "Ready",
         "Hello v2",
       ]);
+      const writer = new Database(filename);
+      writer.exec("delete from session_message; delete from session_v2");
+      writer.close();
+      expect(listRootSessions(db)).toHaveLength(0);
+      expect(getSession(db, "ses-v2")).toBeFalsy();
+      expect(getSession(db, "legacy-only")).toBeFalsy();
+      expect(db.prepare("select count(*) as count from session").get()).toEqual({ count: 2 });
     } finally {
       db.close();
     }
